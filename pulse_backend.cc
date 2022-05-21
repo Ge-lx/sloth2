@@ -55,12 +55,11 @@ namespace audio {
 
 	void PulseBackend::stop () {
 		reset();
-		pa_threaded_mainloop_stop(ud->m);
-		pa_threaded_mainloop_free(ud->m);
-
 		pa_context_disconnect(ud->c);
 		pa_context_unref(ud->c);
 
+		pa_threaded_mainloop_stop(ud->m);
+		pa_threaded_mainloop_free(ud->m);
 		delete ud;
 	}
 
