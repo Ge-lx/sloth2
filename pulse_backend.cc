@@ -10,15 +10,20 @@ namespace audio {
 
 		void sink_info_list_cb (pa_context*, pa_sink_info* i, int eol, void* userdata) {
 			UD* ud = (UD*) userdata;
-			if (!eol) {
-				ud->backend->register_default_sink(i);
-			}
+			ud->backend->add_sink(i, (bool) eol);
+		}
+
+		void sink_input_info_list_cb(pa_context*, pa_sink_input_info* i, int eol, void* userdata) {
+			UD* ud = (UD*) userdata;
+			ud->backend->add_sink_input(i, (bool) eol);
 		}
 
 		void server_info_cb (pa_context*, pa_server_info* const server_info, void* userdata) {
 			UD* ud = (UD*) userdata;
-			ud->backend->query_sink_info_by_name(server_info->default_sink_name);
+			ud->backend->server_info = *server_info;
 			ud->backend->query_all_source_info();
+			ud->backend->query_all_sink_info();
+			ud->backend->query_all_sink_input_info();
 		}
 
 		void context_state_cb (pa_context*, void* userdata) {
@@ -60,33 +65,47 @@ namespace audio {
 	}
 
 	void PulseBackend::on_partial_data () {
-		if (eol_received && default_sink_received) {
+		if (eol_sinks_received && eol_sources_received && eol_sink_inputs_received) {
 			data_valid = true;
 			std::cout << "All data received!" << std::endl;
 		}
 	}
 
 	void PulseBackend::reset () {
-		eol_received = false;
-		default_sink_received = false;
+		eol_sinks_received = false;
+		eol_sources_received = false;
+		eol_sink_inputs_received = false;
 		data_valid = false;
-		infos.clear();
+		source_infos.clear();
 	}
 
-	void PulseBackend::register_default_sink(pa_sink_info* i) {
-		default_sink = *i;
-		default_sink_received = true;
-		on_partial_data();
-		std::cout << "Default sink added: " << default_sink.name << std::endl;
-	}
-
-	void PulseBackend::add_source(pa_source_info* i, bool eol) {
+	void PulseBackend::add_source (pa_source_info* i, bool eol) {
 		if (eol) {
-			eol_received = true;
+			eol_sources_received = true;
 			on_partial_data();
 		} else {
-			infos[i->name] = *i;
-			std::cout << "Source added: " << *i << std::endl;
+			source_infos[i->name] = *i;
+			std::cout << "Source added: " << i->name << std::endl;
+		}
+	}
+
+	void PulseBackend::add_sink (pa_sink_info* i, bool eol) {
+		if (eol) {
+			eol_sinks_received = true;
+			on_partial_data();
+		} else {
+			sink_infos[i->name] = *i;
+			std::cout << "Sink added: " << i->name << std::endl;
+		}
+	}
+
+	void PulseBackend::add_sink_input (pa_sink_input_info* i, bool eol) {
+		if (eol) {
+			eol_sink_inputs_received = true;
+			on_partial_data();
+		} else {
+			sink_input_infos[i->name] = *i;
+			std::cout << "Sink input added: " << *i << std::endl;
 		}
 	}
 
@@ -103,9 +122,15 @@ namespace audio {
 		pa_operation_unref(o);
 	}
 
-	void PulseBackend::query_sink_info_by_name (char const* name) {
-		pa_operation* o = pa_context_get_sink_info_by_name(ud->c,
-			name, pa_sink_info_cb_t(callbacks::sink_info_list_cb), ud);
+	void PulseBackend::query_all_sink_info () {
+		pa_operation* o = pa_context_get_sink_info_list(ud->c,
+			pa_sink_info_cb_t(callbacks::sink_info_list_cb), ud);
+		pa_operation_unref(o);
+	}
+
+	void PulseBackend::query_all_sink_input_info () {
+		pa_operation* o = pa_context_get_sink_input_info_list(ud->c,
+			pa_sink_input_info_cb_t(callbacks::sink_input_info_list_cb), ud);
 		pa_operation_unref(o);
 	}
 

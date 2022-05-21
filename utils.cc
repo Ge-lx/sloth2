@@ -91,6 +91,18 @@ std::ostream& operator<< (std::ostream& os, pa_sample_spec const& spec) {
 		<< "\t\tchannels = " << (uint16_t) spec.channels << "\n\t}";
 }
 
+std::ostream& operator<< (std::ostream& os, pa_server_info const& info) {
+	return os << "pa_server_info {\n\t"
+		<< "user_name = " << info.user_name << "\n\t"
+		<< "host_name = " << info.host_name << "\n\t"
+		<< "server_version = " << info.server_version << "\n\t"
+		<< "server_name = " << info.server_name << "\n\t"
+		<< "sample_spec = " << info.sample_spec << "\n\t"
+		<< "default_sink_name = " << info.default_sink_name << "\n\t"
+		<< "default_source_name = " << info.default_source_name << "\n\t"
+		<< "cookie = " << info.cookie << "\n\t}\n";
+}
+
 std::ostream& operator<< (std::ostream& os, pa_proplist const& plist) {
 	char* const out = pa_proplist_to_string_sep(&plist, "\n\t\t");
 	os << "pa_proplist {\n\t\t" << out << "\n\t}\n";
@@ -98,21 +110,53 @@ std::ostream& operator<< (std::ostream& os, pa_proplist const& plist) {
 	return os;
 }
 
-std::ostream& operator<< (std::ostream& os, pa_source_info const& spec) {
-	os << "pa_source_info {\n"
-		<< "\tname = " << spec.name << "\n"
-		<< "\tindex = " << spec.index << "\n"
-		<< "\tdescription = " << spec.description << "\n"
-		<< "\tsample_spec = " << spec.sample_spec << "\n"
-		<< "\tlatency = " << spec.latency << "us\n"
-		<< "\tconfigured_latency = " << spec.configured_latency << "us\n"
-		<< "\tproplist = " << *(spec.proplist) << "\n"
+std::ostream& operator<< (std::ostream& os, pa_sink_info const& info) {
+	os << "pa_sink_info {\n"
+		<< "\tname = " << info.name << "\n"
+		<< "\tindex = " << info.index << "\n"
+		<< "\tdescription = " << info.description << "\n"
+		<< "\tmonitor_source_name = " << info.monitor_source_name << "\n"
+		<< "\tsample_spec = " << info.sample_spec << "\n"
+		<< "\tlatency = " << info.latency << "us\n"
+		<< "\tconfigured_latency = " << info.configured_latency << "us\n"
+		<< "\tproplist = " << *(info.proplist) << "\n"
 		<< "\tformats = [\n";
 
-	for (uint8_t i = 0; i < spec.n_formats; i++) {
-		os << "\t" << *(*(spec.formats + i));
+	for (uint8_t i = 0; i < info.n_formats; i++) {
+		os << "\t" << *(*(info.formats + i));
 	}
 	return os << "]\n\n}";
+}
+
+std::ostream& operator<< (std::ostream& os, pa_source_info const& info) {
+	os << "pa_source_info {\n"
+		<< "\tname = " << info.name << "\n"
+		<< "\tindex = " << info.index << "\n"
+		<< "\tdescription = " << info.description << "\n"
+		<< "\tsample_spec = " << info.sample_spec << "\n"
+		<< "\tlatency = " << info.latency << "us\n"
+		<< "\tconfigured_latency = " << info.configured_latency << "us\n"
+		<< "\tproplist = " << *(info.proplist) << "\n"
+		<< "\tformats = [\n";
+
+	for (uint8_t i = 0; i < info.n_formats; i++) {
+		os << "\t" << *(*(info.formats + i));
+	}
+	return os << "]\n\n}";
+}
+
+std::ostream& operator<< (std::ostream& os, pa_sink_input_info const& info) {
+	return os << "pa_sink_input_info {\n"
+		<< "\tname = " << info.name << "\n"
+		<< "\tindex = " << info.index << "\n"
+		<< "\tsink = " << info.sink << "\n"
+		<< "\tbuffer_usec = " << info.buffer_usec << "us\n"
+		<< "\tsink_usec = " << info.sink_usec << "us\n"
+		<< "\tsample_spec = " << info.sample_spec << "\n"
+		<< "\tresample_method = " << info.resample_method << "us\n"
+		<< "\tdriver = " << info.driver << "us\n"
+		<< "\tproplist = " << *(info.proplist) << "\n"
+		<< "\tformat = " << *(info.format) << "\n}";
 }
 
 std::ostream& operator<< (std::ostream& os, pa_format_info const& info) {
