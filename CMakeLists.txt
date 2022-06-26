@@ -1,17 +1,19 @@
+cmake_minimum_required(VERSION 3.18)
 project(sloth2)
 
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
-set(CMAKE_CXX_FLAGS "-Wall -Wextra -lpulse") #FIXME use proper cmake find
+set(CMAKE_CXX_FLAGS "-Wall -Wextra -L/usr/include/SDL2 -lSDL2 -lfftw3 -lm") #FIXME use proper cmake find
 set(CMAKE_CXX_FLAGS_DEBUG "-ggdb")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 
-add_library(utils utils.cc)
-add_library(pulse_backend pulse_backend.cc)
+add_library(util util/ring_buffer.tcc util/fft_handler.cpp)
+add_library(sdl sdl/sdl_audio.tcc)
+set_target_properties(util PROPERTIES LINKER_LANGUAGE CXX)
+set_target_properties(sdl PROPERTIES LINKER_LANGUAGE CXX)
 
-add_executable(test test.cc)
+add_executable(sloth2 main.cpp)
 
-target_link_libraries(pulse_backend utils)
-target_link_libraries(test pulse_backend)
+target_link_libraries(sloth2 util sdl)
