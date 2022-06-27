@@ -9,7 +9,7 @@ set(CMAKE_CXX_FLAGS "-Wall -Wextra -L/usr/include/SDL2 -lSDL2 -lfftw3 -lm") #FIX
 set(CMAKE_CXX_FLAGS_DEBUG "-ggdb")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 
-add_library(util util/ring_buffer.tcc util/fft_handler.cpp)
+add_library(util util/ring_buffer.tcc util/fft_handler.cpp util/math.tcc util/rolling_window.tcc)
 add_library(sdl sdl/sdl_audio.tcc)
 set_target_properties(util PROPERTIES LINKER_LANGUAGE CXX)
 set_target_properties(sdl PROPERTIES LINKER_LANGUAGE CXX)

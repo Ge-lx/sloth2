@@ -10,10 +10,10 @@ namespace audio {
         SDL_Init(SDL_INIT_AUDIO);
     }
 
-    template <typename SampleFormat>
+    template <typename SampleT>
     void sdl_audio_cb (void* userdata, uint8_t* stream, int len) {
-        RingBuffer<SampleFormat>* rBuf = (RingBuffer<SampleFormat>*) userdata;
-        SampleFormat* buf = rBuf->dequeue_clean();
+        RingBuffer<SampleT>* rBuf = (RingBuffer<SampleT>*) userdata;
+        SampleT* buf = rBuf->dequeue_clean();
         std::memcpy(buf, stream, len);
         rBuf->enqueue_dirty(buf);
     }
@@ -27,13 +27,13 @@ namespace audio {
         return device_names;
     }
 
-    template <typename SampleFormat>
-    auto start_audio_stream (RingBuffer<SampleFormat>* rb, SDL_AudioSpec& spec, int device_id) {
+    template <typename SampleT>
+    auto start_audio_stream (RingBuffer<SampleT>* rb, SDL_AudioSpec& spec, int device_id) {
         sdl_init();
 
         SDL_AudioDeviceID dev;
         SDL_AudioSpec spec_avail;
-        spec.callback = sdl_audio_cb<SampleFormat>;
+        spec.callback = sdl_audio_cb<SampleT>;
         spec.userdata = rb;
         dev = SDL_OpenAudioDevice(SDL_GetAudioDeviceName(device_id, 1), 1, &spec, &spec_avail, 0);
 
