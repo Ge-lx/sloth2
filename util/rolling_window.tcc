@@ -8,10 +8,12 @@ private:
 	size_t window_length_samples;
 
 public:
-	RollingWindow (size_t window_length_samples, unsigned char const& default_value) :
+	RollingWindow (size_t window_length_samples, SampleT const& default_value) :
 	window_length_samples(window_length_samples) {
 		data = new SampleT[window_length_samples];
-		memset(data, default_value, window_length_samples * sample_bytes);
+		for (size_t i = 0; i < window_length_samples; i++) {
+			data[i] = default_value;
+		}
 	}
 
 	~RollingWindow () {
@@ -23,9 +25,9 @@ public:
 		const size_t update_len_bytes = update_length * sample_bytes;
 
 		// Shift the existing data update_len_bytes bytes towands end
-		memmove(data + update_len_bytes, data, window_len_bytes - update_len_bytes);
+		memmove(data, data + update_length, window_len_bytes - update_len_bytes);
 		// Add the new data to the front
-		memcpy(data, update, update_len_bytes);
+		memcpy(data + window_length_samples - update_length, update, update_len_bytes);
 
 		return data;
 	}

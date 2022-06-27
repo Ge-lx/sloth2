@@ -57,7 +57,7 @@ namespace audio {
             throw std::runtime_error(ss.str());
         }
 
-        printf("SDL Audio initialized");
+        printf("SDL Audio initialized\n");
 
         auto close_audio_stream = [&dev] () {
             SDL_CloseAudioDevice(dev);
