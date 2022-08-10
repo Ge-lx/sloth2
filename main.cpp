@@ -19,7 +19,7 @@ static void get_points(RingBuffer<SampleT>* rb, FFTHandler* fh, RollingWindow<do
     { // Fetch audio fragment from buffer and mean-downmix stereo to mono
         SampleT* const buf = rb->dequeue_dirty();
         for (size_t i = 0; i < spec.samples; i++) {
-            mono[i] = ( buf[2*i] + buf[2*i + 1]) / ((double) std::pow(2, 17));
+            mono[i] = (buf[2*i] + buf[2*i + 1]) / ((double) std::pow(2, 17));
         }
         memset(buf, spec.silence, spec.channels * sizeof(SampleT) * spec.samples);
         rb->enqueue_clean(buf);
@@ -30,13 +30,33 @@ static void get_points(RingBuffer<SampleT>* rb, FFTHandler* fh, RollingWindow<do
     delete[] mono;
     memcpy(fh->real, window_data, window_length * sizeof(double));
 
-    // fh->real = window_data;
     fh->exec_r2c();
-    for (size_t i = 0; i < 1; i++) {
+    const size_t c_length = window_length / 2 + 1;
+    const size_t upper_cutoff = c_length - 0;
+    for (size_t i = 0; i < upper_cutoff; i++) {
+        std::complex<double> c(fh->complex[i][0], fh->complex[i][1]);
+        double abs = std::abs(c);
+        double arg = std::arg(c);
+        // if (i == 0) 
+        //     printf("fft[0][abs] = %f\n", abs);
+        // arg = M_PI * (1 + i / (double) c_length);
+        arg = (3 * M_PI) / 2;
+        // abs = 1;
+        c = std::polar(abs, arg);
+        fh->complex[i][0] = std::real(c);
+        fh->complex[i][1] = std::imag(c);
+    }
+    for (size_t i = 0; i < 3; i++) {
         fh->complex[i][0] = 0;
         fh->complex[i][1] = 0;
     }
     fh->exec_c2r();
+    size_t len_tot = window_length * sizeof(double);
+    double* tmp = new double[window_length / 2];
+    memcpy(tmp, fh->real + window_length / 2, len_tot / 2);
+    memmove(fh->real + window_length / 2, fh->real, len_tot / 2);
+    memcpy(fh->real, tmp, len_tot / 2);
+    delete[] tmp;
     // Why is the scaling is not preserved through irfft(rfft(x)) ?
 
     static math::ExpFilter<double> max_exp_filter{1, 0.1, 0.1, 0};
@@ -111,18 +131,22 @@ int main() {
     spec.freq = 44100;
     spec.format = AUDIO_S16SYS;
     spec.channels = 2;
-    spec.samples = 735;
+    const static int window_length_ms = 40;
+
+    size_t window_length_samples = ((double) window_length_ms) / 1000 * spec.freq;
+    size_t window_length_adj = window_length_samples; // std::pow(2, std::ceil(std::log2(window_length_samples)));
+    // const static size_t window_length_samples = (size_t) spec.freq / (0.5 * cutoff_freq);
+    printf("window_length_samples: %ld\n", window_length_samples);
+    printf("window_length_adj: %ld\n", window_length_adj);
+    spec.samples = ((size_t) window_length_adj / 8);
 
     RingBuffer<SampleT>* ringBuffer = new RingBuffer<SampleT>(spec.channels * spec.samples, 4);
 
     auto stop_audio_stream = start_audio_stream(ringBuffer, spec, 3);
 
-    const static int cutoff_freq = 50;
-    const static size_t window_length_samples = (size_t) spec.freq / (0.5 * cutoff_freq);
-    printf("window_length_samples: %ld\n", window_length_samples);
 
-    RollingWindow<double>* rollingWindow = new RollingWindow<double>(window_length_samples, 0);
-    FFTHandler* fftHandler = new FFTHandler(window_length_samples);
+    RollingWindow<double>* rollingWindow = new RollingWindow<double>(window_length_adj, 0);
+    FFTHandler* fftHandler = new FFTHandler(window_length_adj);
 
     init_ui<SampleT>(ringBuffer, fftHandler, rollingWindow, spec);
 

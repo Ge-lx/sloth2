@@ -42,7 +42,9 @@ namespace audio {
         }
 
         if (spec_avail.samples != spec.samples) {
-            throw std::runtime_error("We didn't get the wanted samples.");
+            // spec.samples = spec_avail.samples;
+            printf("Avail samples: %d\n", spec_avail.samples);
+            // throw std::runtime_error("We didn't get the wanted samples.");
         }
 
         double len_s = ((double) spec_avail.samples) / spec_avail.freq;
