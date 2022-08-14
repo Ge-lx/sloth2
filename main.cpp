@@ -10,6 +10,8 @@
 #include "util/rolling_window.tcc"
 #include "sdl/sdl_audio.tcc"
 
+#define WINDOW_HEIGHT 720
+
 template <typename SampleT>
 static void get_points(RingBuffer<SampleT>* rb, FFTHandler* fh, RollingWindow<double>* rw, SDL_AudioSpec const& spec, SDL_Point* points) {
 
@@ -40,7 +42,7 @@ static void get_points(RingBuffer<SampleT>* rb, FFTHandler* fh, RollingWindow<do
         // if (i == 0) 
         //     printf("fft[0][abs] = %f\n", abs);
         // arg = M_PI * (1 + i / (double) c_length);
-        arg = (3 * M_PI) / 2;
+        arg = 0;
         // abs = 1;
         c = std::polar(abs, arg);
         fh->complex[i][0] = std::real(c);
@@ -57,19 +59,29 @@ static void get_points(RingBuffer<SampleT>* rb, FFTHandler* fh, RollingWindow<do
     memmove(fh->real + window_length / 2, fh->real, len_tot / 2);
     memcpy(fh->real, tmp, len_tot / 2);
     delete[] tmp;
-    // Why is the scaling is not preserved through irfft(rfft(x)) ?
+
+    // Scaling is not preserved: irfft(rfft(x))[i] = x[i] * len(x)
+    for (size_t i = 0; i < window_length; i++) {
+        fh->real[i] /= window_length;
+    }
 
     static math::ExpFilter<double> max_exp_filter{1, 0.1, 0.1, 0};
-    // double max = math::max_value(fh->real, window_length);
-    // max = *(max_exp_filter.update(&max));
-    // double max = 150;
-    // max = max < 0.2 ? 0.2 : (max > 8 ? 8 : max);
-    // printf("Max: %f\n", max);
+    double max = math::min_value(fh->real, window_length);
+    max = *(max_exp_filter.update(&max));
+    max = max < 0.2 ? 0.2 : (max > 8 ? 8 : max);
+
+    double const radius_base = WINDOW_HEIGHT / 2 - 20;
+    double const extrusion_scale = 800;
+    double* angles = new double[window_length];
+    math::lin_space(angles, window_length, 0.0, 2.0 * M_PI, true);
+
 
     // printf("Window length: %ld\n", window_length);
+    double const center[2] = {window_length / 2, WINDOW_HEIGHT / 2};
     for (size_t i = 0; i < window_length; i++) {
-        points[i].x = i;
-        points[i].y = ((fh->real[i] / window_length + 0.5) * 720); // (int) (720 * (0.5 + val / ((double) std::pow(2, 16))));
+        double const radius = radius_base + extrusion_scale * (fh->real[i] / max);
+        points[i].x = center[0] + radius * std::cos(angles[i]);
+        points[i].y = center[1] + radius * std::sin(angles[i]);
     }
 }
 
@@ -86,7 +98,7 @@ int init_ui (RingBuffer<SampleT>* rb, FFTHandler* fh, RollingWindow<double>* rw,
         return 3;
     }
 
-    if (SDL_CreateWindowAndRenderer(window_length, 720, SDL_WINDOW_RESIZABLE, &window, &renderer)) {
+    if (SDL_CreateWindowAndRenderer(window_length, WINDOW_HEIGHT, SDL_WINDOW_RESIZABLE, &window, &renderer)) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Couldn't create window and renderer: %s", SDL_GetError());
         return 3;
     }

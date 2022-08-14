@@ -46,4 +46,21 @@ namespace math {
 		}
 		return max;
 	}
+
+	template <typename T>
+	T min_value (T* const values, size_t len) {
+		T min = values[0];
+		for (size_t i = 1; i < len; i++) {
+			min = values[i] < min ? values[i] : min;
+		}
+		return min;
+	}
+
+	template <typename T>
+	T lin_space (T* values, size_t len, T start, T stop, bool periodic = false) {
+		T const step = (stop - start) / ((double) len - (periodic ? 1 : 0));
+		for (size_t i = 0; i < len; i++) {
+			values[i] = start + i * step;
+		}
+	}
 } // namespace math
