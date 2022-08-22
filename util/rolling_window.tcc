@@ -4,16 +4,20 @@ template <typename SampleT>
 class RollingWindow {
 private:
 	static constexpr size_t sample_bytes = sizeof(SampleT);
-	SampleT* data;
-	SampleT* windowed;
 	size_t window_length_samples;
-	// int i = 0;
+	SampleT* data;
+
+	bool window;
+	SampleT* windowed;
+
+	size_t last_update_samples;
+    size_t index = 0;
 
 public:
 	SampleT* window_function;
 
-	RollingWindow (size_t window_length_samples, SampleT const& default_value) :
-	window_length_samples(window_length_samples) {
+	RollingWindow (size_t window_length_samples, SampleT const& default_value, bool window = false) :
+	window_length_samples(window_length_samples), window(window) {
 		data = new SampleT[window_length_samples];
 	    window_function = new SampleT[window_length_samples];
 	    windowed = new SampleT[window_length_samples];
@@ -38,25 +42,35 @@ public:
 		const static size_t window_len_bytes = window_length_samples * sample_bytes;
 		const size_t update_len_bytes = update_length * sample_bytes;
 
-		// if (++i % 2 == 0) {
-		// 	for (size_t i = 0; i < update_length; i++) {
-		// 		update[i] = 0;
-		// 	}
-		// }
+		index += update_length;
+		index %= window_length_samples;
+		last_update_samples = update_length;
 
 		// Shift the existing data update_len_bytes bytes towands end
 		memmove(data, data + update_length, window_len_bytes - update_len_bytes);
 		// Add the new data to the front
 		memcpy(data + window_length_samples - update_length, update, update_len_bytes);
 
-		for (size_t i = 0; i < window_length_samples; i++) {
-			windowed[i] = window_function[i] * data[i];
-		}
+		if (window) {
+			for (size_t i = 0; i < window_length_samples; i++) {
+				windowed[i] = window_function[i] * data[i];
+			}
 
-		return windowed;
+			return windowed;
+		} else {
+			return data;
+		}
 	}
 
 	size_t window_length () {
 		return window_length_samples;
+	}
+
+	size_t last_update_length () {
+		return last_update_samples;
+	}
+
+	size_t current_index () {
+		return index;
 	}
 };

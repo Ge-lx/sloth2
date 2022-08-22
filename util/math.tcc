@@ -48,6 +48,19 @@ namespace math {
 	}
 
 	template <typename T>
+	size_t max_value_arg (T* const values, size_t len) {
+		T max = values[0];
+		size_t arg = 0;
+		for (size_t i = 1; i < len; i++) {
+			if (values[i] > max) {
+				max = values[i];
+				arg = i;
+			}
+		}
+		return arg;
+	}
+
+	template <typename T>
 	T min_value (T* const values, size_t len) {
 		T min = values[0];
 		for (size_t i = 1; i < len; i++) {
@@ -57,10 +70,10 @@ namespace math {
 	}
 
 	template <typename T>
-	T lin_space (T* values, size_t len, T start, T stop, bool periodic = false) {
-		T const step = (stop - start) / ((double) len - (periodic ? 1 : 0));
+	T lin_space (T* values, size_t len, T start, T stop, bool periodic = false, T step = 1) {
+		T const norm_step = step * (stop - start) / ((double) len - (periodic ? 1 : 0));
 		for (size_t i = 0; i < len; i++) {
-			values[i] = start + i * step;
+			values[i] = start + i * norm_step;
 		}
 	}
 } // namespace math

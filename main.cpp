@@ -10,10 +10,11 @@
 #include "util/rolling_window.tcc"
 #include "sdl/sdl_audio.tcc"
 
-#define WINDOW_HEIGHT 720
+#define WINDOW_HEIGHT 1000
+#define WINDOW_WIDTH 1800
 
 template <typename SampleT>
-static void get_points(RingBuffer<SampleT>* rb, FFTHandler* fh, RollingWindow<double>* rw, SDL_AudioSpec const& spec, SDL_Point* points) {
+static void get_points(RingBuffer<SampleT>* rb, FFTHandler* fh, RollingWindow<double>* rw, RollingWindow<double>* rw_d, SDL_AudioSpec const& spec, SDL_Point* points) {
 
     double* mono = new double[spec.samples];
     const size_t window_length = rw->window_length();
@@ -34,20 +35,38 @@ static void get_points(RingBuffer<SampleT>* rb, FFTHandler* fh, RollingWindow<do
 
     fh->exec_r2c();
     const size_t c_length = window_length / 2 + 1;
-    const size_t upper_cutoff = c_length - 0;
-    for (size_t i = 0; i < upper_cutoff; i++) {
+
+    double* abs_vals = new double[c_length];
+    double* arg_vals = new double[c_length];
+    // double* freqs = new double[c_length];
+    // math::lin_space<double>(freqs, c_length, 0, spec.freq, false, spec.samples / (double) c_length);
+
+    for (size_t i = 0; i < c_length; i++) {
         std::complex<double> c(fh->complex[i][0], fh->complex[i][1]);
-        double abs = std::abs(c);
-        double arg = std::arg(c);
-        // if (i == 0) 
-        //     printf("fft[0][abs] = %f\n", abs);
-        arg = 2 * M_PI *  i / (double) c_length;
-        // arg = 0;
-        // abs = 1;
-        c = std::polar(abs, arg);
+        abs_vals[i] = std::abs(c);
+        arg_vals[i] = std::arg(c);
+    }
+
+    size_t max_freq_arg = math::max_value_arg(abs_vals, c_length);
+    double phase_at_max_freq = arg_vals[max_freq_arg];
+
+    for (size_t i = 0; i < c_length; i++) {
+        double phase = rw->current_index() / ((double) window_length);
+        double freq_phase = (i == 0 ? 0 : i * 2 * M_PI * phase);
+        std::complex<double> c = std::polar(abs_vals[i], arg_vals[i] - freq_phase);
         fh->complex[i][0] = std::real(c);
         fh->complex[i][1] = std::imag(c);
     }
+
+    delete[] abs_vals;
+    delete[] arg_vals;
+        // if (i == 0) 
+        //     printf("fft[0][abs] = %f\n", abs);
+        // arg = 2 * M_PI *  i / (double) c_length;
+        // arg = 0;
+        // abs = 1;
+        
+    // }
     // for (size_t i = 0; i < 3; i++) {
     //     fh->complex[i][0] = 0;
     //     fh->complex[i][1] = 0;
@@ -70,14 +89,15 @@ static void get_points(RingBuffer<SampleT>* rb, FFTHandler* fh, RollingWindow<do
     // max = *(max_exp_filter.update(&max));
     // max = max < 0.2 ? 0.2 : (max > 8 ? 8 : max);
 
-    double const radius_base = WINDOW_HEIGHT / 2 - 50;
-    double const extrusion_scale = 400;
+    double const radius_base = WINDOW_HEIGHT / 2 - 200;
+    double const extrusion_scale = 800;
     double* angles = new double[window_length];
-    math::lin_space(angles, window_length, 0.0, 2.0 * M_PI, true);
+    phase_at_max_freq = 2 * M_PI / 2;
+    math::lin_space(angles, window_length, 0.0 + phase_at_max_freq, 2.0 * M_PI + phase_at_max_freq, true);
 
 
     // printf("Window length: %ld\n", window_length);
-    double const center[2] = {window_length / 2, WINDOW_HEIGHT / 2};
+    double const center[2] = {WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2};
     for (size_t i = 0; i < window_length; i++) {
         double const radius = radius_base + extrusion_scale * (fh->real[i]);
         points[i].x = center[0] + radius * std::cos(angles[i]);
@@ -86,7 +106,7 @@ static void get_points(RingBuffer<SampleT>* rb, FFTHandler* fh, RollingWindow<do
 }
 
 template <typename SampleT>
-int init_ui (RingBuffer<SampleT>* rb, FFTHandler* fh, RollingWindow<double>* rw, SDL_AudioSpec const& spec) {
+int init_ui (RingBuffer<SampleT>* rb, FFTHandler* fh, RollingWindow<double>* rw, RollingWindow<double>* rw_d, SDL_AudioSpec const& spec) {
     SDL_Window *window;
     SDL_Renderer *renderer;
     SDL_Event event;
@@ -98,7 +118,7 @@ int init_ui (RingBuffer<SampleT>* rb, FFTHandler* fh, RollingWindow<double>* rw,
         return 3;
     }
 
-    if (SDL_CreateWindowAndRenderer(window_length, WINDOW_HEIGHT, SDL_WINDOW_RESIZABLE, &window, &renderer)) {
+    if (SDL_CreateWindowAndRenderer(WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_RESIZABLE, &window, &renderer)) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Couldn't create window and renderer: %s", SDL_GetError());
         return 3;
     }
@@ -116,7 +136,7 @@ int init_ui (RingBuffer<SampleT>* rb, FFTHandler* fh, RollingWindow<double>* rw,
         SDL_RenderClear(renderer);
 
         SDL_SetRenderDrawColor(renderer, 255, 255, 255, SDL_ALPHA_OPAQUE);
-        get_points<SampleT>(rb, fh, rw, spec, points);
+        get_points<SampleT>(rb, fh, rw, rw_d, spec, points);
         SDL_RenderDrawLines(renderer, points, window_length);
         SDL_RenderPresent(renderer);
     }
@@ -139,7 +159,7 @@ int main() {
         SDL_Log("Audio device %d: %s", i, device_names[i].c_str());
     }
 
-    uint16_t device_id = 0;
+    uint16_t device_id = 3;
 
     typedef int16_t SampleT;
     SDL_AudioSpec spec;
@@ -160,11 +180,11 @@ int main() {
 
     auto stop_audio_stream = start_audio_stream(ringBuffer, spec, device_id);
 
-
-    RollingWindow<double>* rollingWindow = new RollingWindow<double>(window_length_adj, 0);
+    RollingWindow<double>* rollingWindow = new RollingWindow<double>(window_length_adj, 0, true);
+    RollingWindow<double>* rwDisplay = new RollingWindow<double>(window_length_adj, 0, false);
     FFTHandler* fftHandler = new FFTHandler(window_length_adj);
 
-    init_ui<SampleT>(ringBuffer, fftHandler, rollingWindow, spec);
+    init_ui<SampleT>(ringBuffer, fftHandler, rollingWindow, rwDisplay, spec);
 
     stop_audio_stream();
     delete ringBuffer;
