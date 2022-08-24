@@ -52,7 +52,7 @@ static void get_points(RingBuffer<SampleT>* rb, FFTHandler* fh, RollingWindow<do
 
     for (size_t i = 0; i < c_length; i++) {
         double phase = rw->current_index() / ((double) window_length);
-        double freq_phase = (i == 0 ? 0 : i * 2 * M_PI * phase);
+        double freq_phase = (i == 0 ? 0 : (1+i) * 2 * M_PI * phase);
         std::complex<double> c = std::polar(abs_vals[i], arg_vals[i] - freq_phase);
         fh->complex[i][0] = std::real(c);
         fh->complex[i][1] = std::imag(c);
@@ -149,6 +149,8 @@ int init_ui (RingBuffer<SampleT>* rb, FFTHandler* fh, RollingWindow<double>* rw,
     return 0;
 }
 
+
+
 int main() {
     using namespace audio;
 
@@ -167,25 +169,29 @@ int main() {
     spec.freq = 44100;
     spec.format = AUDIO_S16SYS;
     spec.channels = 2;
-    const static int window_length_ms = 40;
+    const static int update_interval_ms = 1000 / 60;
+    const static int window_length_ms = 1000 / 1;
+
+    size_t update_fragment_samples = ((double) update_interval_ms) / 1000 * spec.freq;
+    spec.samples = (size_t) update_fragment_samples;
 
     size_t window_length_samples = ((double) window_length_ms) / 1000 * spec.freq;
-    size_t window_length_adj = window_length_samples; // std::pow(2, std::ceil(std::log2(window_length_samples)));
-    // const static size_t window_length_samples = (size_t) spec.freq / (0.5 * cutoff_freq);
+    printf("update_fragment_samples: %ld\n", update_fragment_samples);
     printf("window_length_samples: %ld\n", window_length_samples);
-    printf("window_length_adj: %ld\n", window_length_adj);
-    spec.samples = ((size_t) window_length_adj / 8);
+    printf("Instantiating visualizations\n");
 
     RingBuffer<SampleT>* ringBuffer = new RingBuffer<SampleT>(spec.channels * spec.samples, 4);
+    RollingWindow<double>* rollingWindow = new RollingWindow<double>(window_length_samples, 0, true);
+    RollingWindow<double>* rwDisplay = new RollingWindow<double>(window_length_samples, 0, false);
+    FFTHandler* fftHandler = new FFTHandler(window_length_samples);
 
+    printf("Starting audio stream on device %d\n", device_id);
     auto stop_audio_stream = start_audio_stream(ringBuffer, spec, device_id);
 
-    RollingWindow<double>* rollingWindow = new RollingWindow<double>(window_length_adj, 0, true);
-    RollingWindow<double>* rwDisplay = new RollingWindow<double>(window_length_adj, 0, false);
-    FFTHandler* fftHandler = new FFTHandler(window_length_adj);
-
+    printf("Starting UI\n");
     init_ui<SampleT>(ringBuffer, fftHandler, rollingWindow, rwDisplay, spec);
 
+    printf("Stopping audio stream and deconstructing.\n");
     stop_audio_stream();
     delete ringBuffer;
     delete fftHandler;
