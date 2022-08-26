@@ -107,11 +107,30 @@ void ui_shutdown () {
   
 // }
 
-int main() {
+int main (int argc, char** argv) {
+    std::cout << "Starting sloth2 realtime audio visualizer..." << std::endl;
+
     using namespace audio;
     sdl_init();
 
     uint16_t device_id = 3;
+    if (argc > 1) {
+	   device_id = atoi(argv[1]);
+    } else {
+        std::cout << "\nNo audio device specified. Please choose one!" << std::endl;
+        std::cout << "Usage: \"./sloth2 <device_id>\"\n" << std::endl;
+
+        std::cout << "Available devices:" << std::endl;
+        auto device_names = get_audio_device_names();
+        for (size_t i = 0; i < device_names.size(); i++) {
+            std::cout << "\t" << i << ": " << device_names[i] << std::endl;
+        }
+
+        return 1;
+    }
+
+    std::cout << std::endl << std::endl;
+
     SDL_AudioSpec spec;
     SDL_zero(spec);
 
@@ -171,13 +190,8 @@ int main() {
     params2.fft_freq_weighing = freq_weighing_2;
 
 
-    printf("update_fragment_samples: %ld\n", update_fragment_samples);
-    printf("window_length_samples: %ld\n", window_length_samples);
-
-    auto device_names = get_audio_device_names();
-    for (unsigned int i = 0; i < device_names.size(); i++) {
-        SDL_Log("Audio device %d: %s", i, device_names[i].c_str());
-    }
+    // printf("update_fragment_samples: %ld\n", update_fragment_samples);
+    // printf("window_length_samples: %ld\n", window_length_samples);
     printf("Starting audio stream on device %d\n", device_id);
     auto stop_audio_stream = start_audio_stream(ringBuffer, spec, device_id);
 
