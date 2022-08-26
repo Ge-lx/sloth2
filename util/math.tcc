@@ -70,7 +70,7 @@ namespace math {
 	}
 
 	template <typename T>
-	T lin_space (T* values, size_t len, T start, T stop, bool periodic = false, T step = 1) {
+	void lin_space (T* values, size_t len, T start, T stop, bool periodic = false, T step = 1) {
 		T const norm_step = step * (stop - start) / ((double) len - (periodic ? 1 : 0));
 		for (size_t i = 0; i < len; i++) {
 			values[i] = start + i * norm_step;

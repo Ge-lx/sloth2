@@ -1,0 +1,104 @@
+#include "vis_handler.tcc"
+#include <stdexcept>
+
+struct BPSW_Spec {
+	size_t win_length_samples; // Window length in samples
+	bool win_window_fn; // Apply window function
+
+	double* fft_freq_weighing = NULL; // abs(fft(window)) weighing
+	double fft_dispersion; // arg(fft(window)) freq. dependent weighing
+
+	size_t crop_length_samples; // Displayed length of the window
+	size_t crop_offset; // Display window offset
+
+	unsigned int c_center_x, c_center_y; // Circle center location
+	double c_rad_base, c_rad_extr; // Radius base and extrusion scaling
+};
+
+class BandpassStandingWave : public VisualizationHandler {
+private:
+	BPSW_Spec params;
+	RollingWindow<double> rollingWindow;
+	FFTHandler fftHandler;
+	bool const should_weigh = false;
+
+	SDL_Point* points;
+	double* circle_angles;
+
+	void visualize (double const* data) {
+		// Update the rolling window and
+		double* const window_data = rollingWindow.update(data, VisualizationHandler::spec.samples);
+
+		// Execute fourier transformation
+		memcpy(fftHandler.real, window_data, params.win_length_samples * sizeof(double));
+	    fftHandler.exec_r2c();
+
+	    // Convert to polar basis
+	    const size_t c_length = params.win_length_samples / 2 + 1;
+	    double* abs_vals = new double[c_length];
+	    double* arg_vals = new double[c_length];
+	    for (size_t i = 0; i < c_length; i++) {
+	        std::complex<double> c(fftHandler.complex[i][0], fftHandler.complex[i][1]);
+	        abs_vals[i] = std::abs(c);
+	        arg_vals[i] = std::arg(c);
+	    }
+
+	    // Transform polar frequency spectrum
+	    for (size_t i = 0; i < c_length; i++) {
+	        double bin_phase = 2 * M_PI * rollingWindow.current_index() / ((double) params.win_length_samples);
+	        double abs_weighted = abs_vals[i] * params.fft_freq_weighing[i];
+	        double arg_shifted = arg_vals[i] - (i + params.fft_dispersion) * bin_phase;
+	        std::complex<double> c = std::polar(abs_weighted, arg_shifted);
+
+	        fftHandler.complex[i][0] = std::real(c);
+	        fftHandler.complex[i][1] = std::imag(c);
+	    }
+	    delete[] abs_vals;
+	    delete[] arg_vals;
+
+	    // Execute inverse fourier transformation
+	    fftHandler.exec_c2r();
+
+        // Crop to display area
+        for (size_t i = 0; i < params.crop_length_samples; i++) {
+	    	// Scaling is not preserved: irfft(rfft(x))[i] = x[i] * len(x)
+	    	double const irfft_value = fftHandler.real[params.crop_offset + i] / params.win_length_samples;
+	        double const radius = params.c_rad_base + params.c_rad_extr * irfft_value;
+
+	        points[i].x = params.c_center_x + radius * std::cos(circle_angles[i]);
+	        points[i].y = params.c_center_y + radius * std::sin(circle_angles[i]);
+        }
+
+	}
+
+	void render (SDL_Renderer* renderer) {
+		SDL_SetRenderDrawColor(renderer, 255, 255, 255, 220);
+		SDL_RenderDrawLines(renderer, points, params.crop_length_samples);
+	}
+
+public:
+
+	BandpassStandingWave (SDL_AudioSpec const& spec, BPSW_Spec const& params) :
+		VisualizationHandler(spec),
+		params(params),
+		rollingWindow(params.win_length_samples, 0, params.win_window_fn),
+		fftHandler(params.win_length_samples),
+		should_weigh(params.fft_freq_weighing != NULL)
+	{
+		// assert(params.win_length_samples >= (params.crop_length_samples + params.crop_offset),
+		// 	"Cropped area is too large, window insufficient");
+		points = new SDL_Point[params.crop_length_samples];
+
+		if (spec.samples > params.win_length_samples) {
+			throw std::invalid_argument("Window cannot be shorter than samples per update");
+		}
+
+		circle_angles = new double[params.crop_length_samples];
+		math::lin_space(circle_angles, params.crop_length_samples, M_PI, 3.0 * M_PI, true);
+	}
+
+	~BandpassStandingWave () {
+		delete[] points;
+		delete[] circle_angles;
+	}
+};

@@ -1,118 +1,57 @@
 #include <cstring>
 #include <cmath>
 #include <complex.h>
-
-#include <SDL2/SDL.h>
+#include <iostream>
+#include <iomanip>
+#include <chrono>
 
 #include "util/fft_handler.h"
 #include "util/ring_buffer.tcc"
 #include "util/math.tcc"
 #include "util/rolling_window.tcc"
-#include "sdl/sdl_audio.tcc"
 
+#include "visualization/bandpass_standing_wave.tcc"
+
+#include <SDL2/SDL.h>
+#include "sdl/sdl_audio.tcc"
 #define WINDOW_HEIGHT 1000
 #define WINDOW_WIDTH 1800
 
-template <typename SampleT>
-static void get_points(RingBuffer<SampleT>* rb, FFTHandler* fh, RollingWindow<double>* rw, RollingWindow<double>* rw_d, SDL_AudioSpec const& spec, SDL_Point* points) {
+SDL_Window *window;
+SDL_Renderer *renderer;
+SDL_Event event;
 
-    double* mono = new double[spec.samples];
-    const size_t window_length = rw->window_length();
-
-    { // Fetch audio fragment from buffer and mean-downmix stereo to mono
-        SampleT* const buf = rb->dequeue_dirty();
-        for (size_t i = 0; i < spec.samples; i++) {
-            mono[i] = (buf[2*i] + buf[2*i + 1]) / ((double) std::pow(2, 17));
-        }
-        memset(buf, spec.silence, spec.channels * sizeof(SampleT) * spec.samples);
-        rb->enqueue_clean(buf);
-    }
-
-    // Update rolling_window
-    double* const window_data = rw->update(mono, spec.samples);
-    delete[] mono;
-    memcpy(fh->real, window_data, window_length * sizeof(double));
-
-    fh->exec_r2c();
-    const size_t c_length = window_length / 2 + 1;
-
-    double* abs_vals = new double[c_length];
-    double* arg_vals = new double[c_length];
-    // double* freqs = new double[c_length];
-    // math::lin_space<double>(freqs, c_length, 0, spec.freq, false, spec.samples / (double) c_length);
-
-    for (size_t i = 0; i < c_length; i++) {
-        std::complex<double> c(fh->complex[i][0], fh->complex[i][1]);
-        abs_vals[i] = std::abs(c);
-        arg_vals[i] = std::arg(c);
-    }
-
-    size_t max_freq_arg = math::max_value_arg(abs_vals, c_length);
-    double phase_at_max_freq = arg_vals[max_freq_arg];
-
-    for (size_t i = 0; i < c_length; i++) {
-        double phase = rw->current_index() / ((double) window_length);
-        double freq_phase = (i == 0 ? 0 : (1+i) * 2 * M_PI * phase);
-        std::complex<double> c = std::polar(abs_vals[i], arg_vals[i] - freq_phase);
-        fh->complex[i][0] = std::real(c);
-        fh->complex[i][1] = std::imag(c);
-    }
-
-    delete[] abs_vals;
-    delete[] arg_vals;
-        // if (i == 0) 
-        //     printf("fft[0][abs] = %f\n", abs);
-        // arg = 2 * M_PI *  i / (double) c_length;
-        // arg = 0;
-        // abs = 1;
-        
-    // }
-    // for (size_t i = 0; i < 3; i++) {
-    //     fh->complex[i][0] = 0;
-    //     fh->complex[i][1] = 0;
-    // }
-    fh->exec_c2r();
-    size_t len_tot = window_length * sizeof(double);
-    // double* tmp = new double[window_length / 2];
-    // memcpy(tmp, fh->real + window_length / 2, len_tot / 2);
-    // memmove(fh->real + window_length / 2, fh->real, len_tot / 2);
-    // memcpy(fh->real, tmp, len_tot / 2);
-    // delete[] tmp;
-
-    // Scaling is not preserved: irfft(rfft(x))[i] = x[i] * len(x)
-    for (size_t i = 0; i < window_length; i++) {
-        fh->real[i] /= window_length;
-    }
-
-    // static math::ExpFilter<double> max_exp_filter{1, 0.1, 0.1, 0};
-    // double max = math::min_value(fh->real, window_length);
-    // max = *(max_exp_filter.update(&max));
-    // max = max < 0.2 ? 0.2 : (max > 8 ? 8 : max);
-
-    double const radius_base = WINDOW_HEIGHT / 2 - 200;
-    double const extrusion_scale = 800;
-    double* angles = new double[window_length];
-    phase_at_max_freq = 2 * M_PI / 2;
-    math::lin_space(angles, window_length, 0.0 + phase_at_max_freq, 2.0 * M_PI + phase_at_max_freq, true);
-
-
-    // printf("Window length: %ld\n", window_length);
-    double const center[2] = {WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2};
-    for (size_t i = 0; i < window_length; i++) {
-        double const radius = radius_base + extrusion_scale * (fh->real[i]);
-        points[i].x = center[0] + radius * std::cos(angles[i]);
-        points[i].y = center[1] + radius * std::sin(angles[i]);
-    }
+typedef std::chrono::high_resolution_clock clk;
+double time_diff_us (std::chrono::time_point<clk> const& a, std::chrono::time_point<clk> const& b) {
+    const std::chrono::duration<double, std::micro> diff = b - a;
+    return diff.count();
 }
 
 template <typename SampleT>
-int init_ui (RingBuffer<SampleT>* rb, FFTHandler* fh, RollingWindow<double>* rw, RollingWindow<double>* rw_d, SDL_AudioSpec const& spec) {
-    SDL_Window *window;
-    SDL_Renderer *renderer;
-    SDL_Event event;
+std::chrono::time_point<clk> process_ring_buffer (RingBuffer<SampleT>* ringBuffer, VisualizationHandler** handlers, size_t num_handlers, SDL_AudioSpec& spec) {
+    SampleT* const buf = ringBuffer->dequeue_dirty();
+    auto received = clk::now();
 
-    const size_t window_length = rw->window_length();
+    double* mono = new double[spec.samples];
+    for (size_t i = 0; i < spec.samples; i++) {
+        mono[i] = (buf[2*i] + buf[2*i + 1]) / ((double) std::pow(2, 17));
+    }
+    memset(buf, spec.silence, spec.channels * sizeof(SampleT) * spec.samples);
+    ringBuffer->enqueue_clean(buf);
 
+    for (size_t i = 0; i < num_handlers; i++) {
+        handlers[i]->process_ring_buffer(mono);
+    }
+
+    for (size_t i = 0; i < num_handlers; i++) {
+        handlers[i]->await_buffer_processed();
+    }
+
+    delete[] mono;
+    return received;
+}
+
+int ui_init () {
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Couldn't initialize SDL: %s", SDL_GetError());
         return 3;
@@ -123,77 +62,169 @@ int init_ui (RingBuffer<SampleT>* rb, FFTHandler* fh, RollingWindow<double>* rw,
         return 3;
     }
 
-    SDL_Point* points = new SDL_Point[window_length];
+    return 0;
+}
 
-    while (1) {
-        SDL_PollEvent(&event);
-        if (event.type == SDL_QUIT) {
-            break;
-        }
-        // SDL_ResizeEvent event = event;
-        // double const resize_to[2] = event.type == SDL_VIDEORESIZE ? {event.w, event.h}
-        SDL_SetRenderDrawColor(renderer, 0, 0, 0, SDL_ALPHA_OPAQUE);
-        SDL_RenderClear(renderer);
+bool ui_should_quit () {
+    SDL_PollEvent(&event);
+    return event.type == SDL_QUIT;
+}
 
-        SDL_SetRenderDrawColor(renderer, 255, 255, 255, SDL_ALPHA_OPAQUE);
-        get_points<SampleT>(rb, fh, rw, rw_d, spec, points);
-        SDL_RenderDrawLines(renderer, points, window_length);
-        SDL_RenderPresent(renderer);
-    }
-
+void ui_shutdown () {
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
 
     SDL_Quit();
-
-    return 0;
 }
 
+// template <typename SampleT>
+// int init_ui (VisualizationHandler** handlers, size_t num_handlers) {
+    
 
+    
+
+//     while (1) {
+        
+
+        // if (time_diff_us(last_print, last_update) >= 1000 * 1000) {
+        //     last_print = last_update;
+        //     double acc_util = (acc_render + acc_getpoints[1] + acc_getpoints[2] + acc_idle);
+        //     std::cout << "Stats:  "
+        //         << std::setw(3) << frame_count << " frames | "
+        //         << std::setw(9) << acc_render / frame_count << " us/f render | "
+        //         << std::setw(9) << acc_getpoints[0] / frame_count << " us/f buffer wait | "
+        //         << std::setw(9) << acc_getpoints[1] / frame_count << " us/f copy | "
+        //         << std::setw(9) << acc_getpoints[2] / frame_count << " us/f visualization | "
+        //         << std::setw(9) << acc_idle / frame_count << " us/f events | "
+        //         << std::setw(7) << acc_util / (acc_getpoints[0] + acc_util) << " util\n";
+        //     acc_render = 0;
+        //     for (size_t i = 0; i < 3; i++) acc_getpoints[i] = 0;
+        //     acc_idle = 0;
+        //     frame_count = 0;
+        // }
+    // }
+
+  
+// }
 
 int main() {
     using namespace audio;
-
     sdl_init();
-    auto device_names = get_audio_device_names();
 
+    uint16_t device_id = 3;
+    SDL_AudioSpec spec;
+    SDL_zero(spec);
+
+    typedef int16_t SampleT;
+    spec.format = AUDIO_S16SYS;
+    spec.freq = 44100;//96000;
+    spec.channels = 2;
+
+    const static double update_interval_ms = 1000 / 59;
+    const static double window_length_ms = 80;//update_interval_ms * 8;
+    const static int num_ring_buffers = 2;
+
+    size_t window_length_samples = ((double) window_length_ms) / 1000 * spec.freq;
+    size_t update_fragment_samples = update_interval_ms / 1000.0 * spec.freq;
+    spec.samples = (size_t) update_fragment_samples;
+    printf("Allocating ring buffer of %f kB\n", 2 * update_fragment_samples * spec.channels * num_ring_buffers / 1000.0);
+    RingBuffer<SampleT>* ringBuffer = new RingBuffer<SampleT>(spec.channels * spec.samples, num_ring_buffers);
+
+
+    BPSW_Spec params {
+        .win_length_samples = window_length_samples / 2,
+        .win_window_fn = true,
+        .fft_dispersion = 0,
+        .crop_length_samples = window_length_samples / 2,
+        .crop_offset = 0,
+        .c_center_x = WINDOW_WIDTH / 2,
+        .c_center_y = WINDOW_HEIGHT / 2,
+        .c_rad_base = WINDOW_HEIGHT / 2 - 220,
+        .c_rad_extr = 400,
+    };
+    size_t c_length = params.win_length_samples / 2 + 1;
+    double* freq_weighing = new double[c_length];
+    for (size_t i = 0; i < c_length; i++) {
+        freq_weighing[i] = i < 10 ? 1.5 :
+                           i < 20 ? 1 : 0.2;
+                           // i < 80 ? 0.2 : 0;
+    }
+    params.fft_freq_weighing = freq_weighing;
+
+
+    BPSW_Spec params2 {
+        .win_length_samples = window_length_samples / 2,
+        .win_window_fn = true,
+        .fft_dispersion = 0,
+        .crop_length_samples = window_length_samples / 2,
+        .crop_offset = 0,
+        .c_center_x = WINDOW_WIDTH / 2,
+        .c_center_y = WINDOW_HEIGHT / 2,
+        .c_rad_base = WINDOW_HEIGHT / 2 - 50,
+        .c_rad_extr = 300,
+    };
+    size_t c_length_2 = params2.win_length_samples / 2 + 1;
+    double* freq_weighing_2 = new double[c_length_2];
+    for (size_t i = 0; i < c_length_2; i++) {
+        freq_weighing_2[i] = i > 80 ? 2 : 0;
+    }
+    params2.fft_freq_weighing = freq_weighing_2;
+
+
+    printf("update_fragment_samples: %ld\n", update_fragment_samples);
+    printf("window_length_samples: %ld\n", window_length_samples);
+
+    auto device_names = get_audio_device_names();
     for (unsigned int i = 0; i < device_names.size(); i++) {
         SDL_Log("Audio device %d: %s", i, device_names[i].c_str());
     }
-
-    uint16_t device_id = 3;
-
-    typedef int16_t SampleT;
-    SDL_AudioSpec spec;
-    SDL_zero(spec);
-    spec.freq = 44100;
-    spec.format = AUDIO_S16SYS;
-    spec.channels = 2;
-    const static int update_interval_ms = 1000 / 60;
-    const static int window_length_ms = 1000 / 1;
-
-    size_t update_fragment_samples = ((double) update_interval_ms) / 1000 * spec.freq;
-    spec.samples = (size_t) update_fragment_samples;
-
-    size_t window_length_samples = ((double) window_length_ms) / 1000 * spec.freq;
-    printf("update_fragment_samples: %ld\n", update_fragment_samples);
-    printf("window_length_samples: %ld\n", window_length_samples);
-    printf("Instantiating visualizations\n");
-
-    RingBuffer<SampleT>* ringBuffer = new RingBuffer<SampleT>(spec.channels * spec.samples, 4);
-    RollingWindow<double>* rollingWindow = new RollingWindow<double>(window_length_samples, 0, true);
-    RollingWindow<double>* rwDisplay = new RollingWindow<double>(window_length_samples, 0, false);
-    FFTHandler* fftHandler = new FFTHandler(window_length_samples);
-
     printf("Starting audio stream on device %d\n", device_id);
     auto stop_audio_stream = start_audio_stream(ringBuffer, spec, device_id);
 
+
+    printf("Instantiating visualizations\n");
+
+    BandpassStandingWave bpsw {spec, params};
+    BandpassStandingWave bpsw2 {spec, params2};
+    constexpr size_t num_handlers = 2;
+    VisualizationHandler* handlers[num_handlers] = {&bpsw, &bpsw2};
+
     printf("Starting UI\n");
-    init_ui<SampleT>(ringBuffer, fftHandler, rollingWindow, rwDisplay, spec);
+    ui_init();
+
+    auto last_frame = clk::now();
+    double frame_us_nominal = (update_fragment_samples / (double) spec.freq) * 1000000;
+    size_t frame_counter = 0;
+
+    while (ui_should_quit() == false) {
+
+        // SDL_ResizeEvent event = event;
+        // double const resize_to[2] = event.type == SDL_VIDEORESIZE ? {event.w, event.h}
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 100);
+        SDL_RenderClear(renderer);
+        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 220);
+
+        if (frame_counter++ % 60 == 0) {
+            auto now = clk::now();
+            double diff = time_diff_us(last_frame, now);
+            std::cout << "Frame after " << std::setw(10) << diff << " us | "
+                << std::setw(10) << diff / frame_us_nominal << " utilization\n";
+        }
+
+        last_frame = process_ring_buffer(ringBuffer, handlers, num_handlers, spec);
+
+        for (size_t i = 0; i < num_handlers; i++) {
+            handlers[i]->await_and_render(renderer);
+        }
+
+        SDL_RenderPresent(renderer);
+
+    }
 
     printf("Stopping audio stream and deconstructing.\n");
+
+    ui_shutdown();
     stop_audio_stream();
+
     delete ringBuffer;
-    delete fftHandler;
-    delete rollingWindow;
 }

@@ -60,7 +60,11 @@ private:
     ThreadSafeQueue<T*> dirty;
 
 public:
-    RingBuffer (size_t buffer_len, size_t num_buffers) {
+    size_t buffer_len, num_buffers;
+
+    RingBuffer (size_t buffer_len, size_t num_buffers) :
+        buffer_len(buffer_len), num_buffers(num_buffers)
+    {
         for (size_t i = 0; i < num_buffers; i++) {
             clean.enqueue(new T[buffer_len]);
         }
