@@ -77,36 +77,6 @@ void ui_shutdown () {
     SDL_Quit();
 }
 
-// template <typename SampleT>
-// int init_ui (VisualizationHandler** handlers, size_t num_handlers) {
-    
-
-    
-
-//     while (1) {
-        
-
-        // if (time_diff_us(last_print, last_update) >= 1000 * 1000) {
-        //     last_print = last_update;
-        //     double acc_util = (acc_render + acc_getpoints[1] + acc_getpoints[2] + acc_idle);
-        //     std::cout << "Stats:  "
-        //         << std::setw(3) << frame_count << " frames | "
-        //         << std::setw(9) << acc_render / frame_count << " us/f render | "
-        //         << std::setw(9) << acc_getpoints[0] / frame_count << " us/f buffer wait | "
-        //         << std::setw(9) << acc_getpoints[1] / frame_count << " us/f copy | "
-        //         << std::setw(9) << acc_getpoints[2] / frame_count << " us/f visualization | "
-        //         << std::setw(9) << acc_idle / frame_count << " us/f events | "
-        //         << std::setw(7) << acc_util / (acc_getpoints[0] + acc_util) << " util\n";
-        //     acc_render = 0;
-        //     for (size_t i = 0; i < 3; i++) acc_getpoints[i] = 0;
-        //     acc_idle = 0;
-        //     frame_count = 0;
-        // }
-    // }
-
-  
-// }
-
 int main (int argc, char** argv) {
     std::cout << "Starting sloth2 realtime audio visualizer..." << std::endl;
 
@@ -131,16 +101,18 @@ int main (int argc, char** argv) {
 
     std::cout << std::endl << std::endl;
 
+    /* -------------------- CONFIGURATION --------------------------------- */
+
     SDL_AudioSpec spec;
     SDL_zero(spec);
 
     typedef int16_t SampleT;
     spec.format = AUDIO_S16SYS;
-    spec.freq = 44100;//96000;
+    spec.freq = 96000;
     spec.channels = 2;
 
     const static double update_interval_ms = 1000 / 59;
-    const static double window_length_ms = 80;//update_interval_ms * 8;
+    const static double window_length_ms = 80;
     const static int num_ring_buffers = 2;
 
     size_t window_length_samples = ((double) window_length_ms) / 1000 * spec.freq;
@@ -153,7 +125,9 @@ int main (int argc, char** argv) {
     BPSW_Spec params {
         .win_length_samples = window_length_samples / 2,
         .win_window_fn = true,
-        .fft_dispersion = 0,
+        .fft_dispersion = 2 * 1.41421356237,
+        .fft_phase = BPSW_Phase::Constant,
+        .fft_phase_const = 1.22222,
         .crop_length_samples = window_length_samples / 2,
         .crop_offset = 0,
         .c_center_x = WINDOW_WIDTH / 2,
@@ -170,11 +144,35 @@ int main (int argc, char** argv) {
     }
     params.fft_freq_weighing = freq_weighing;
 
+    BPSW_Spec params_i {
+        .win_length_samples = window_length_samples / 2,
+        .win_window_fn = true,
+        .fft_dispersion = 0,//2 * 1.41421356237,
+        .fft_phase = BPSW_Phase::Standing,
+        .fft_phase_const = 0,
+        .crop_length_samples = window_length_samples / 2,
+        .crop_offset = 0,
+        .c_center_x = WINDOW_WIDTH / 2,
+        .c_center_y = WINDOW_HEIGHT / 2,
+        .c_rad_base = WINDOW_HEIGHT / 2 - 400,
+        .c_rad_extr = 100,
+    };
+    size_t c_length_i = params_i.win_length_samples / 2 + 1;
+    double* freq_weighing_i = new double[c_length_i];
+    for (size_t i = 0; i < c_length_i; i++) {
+        freq_weighing_i[i] = i < 10 ? 1.5 :
+                           i < 20 ? 1 : 0.2;
+                           // i < 80 ? 0.2 : 0;
+    }
+    params_i.fft_freq_weighing = freq_weighing_i;
+
 
     BPSW_Spec params2 {
         .win_length_samples = window_length_samples / 2,
         .win_window_fn = true,
         .fft_dispersion = 0,
+        .fft_phase = BPSW_Phase::Standing,
+        .fft_phase_const = 0,
         .crop_length_samples = window_length_samples / 2,
         .crop_offset = 0,
         .c_center_x = WINDOW_WIDTH / 2,
@@ -185,23 +183,22 @@ int main (int argc, char** argv) {
     size_t c_length_2 = params2.win_length_samples / 2 + 1;
     double* freq_weighing_2 = new double[c_length_2];
     for (size_t i = 0; i < c_length_2; i++) {
-        freq_weighing_2[i] = i > 80 ? 2 : 0;
+        freq_weighing_2[i] = i > 180 ? 3 :
+                             i > 80 ? 1.5 : 0;
     }
     params2.fft_freq_weighing = freq_weighing_2;
 
+    /* -------------------- CONFIGURATION END ----------------------------- */
 
-    // printf("update_fragment_samples: %ld\n", update_fragment_samples);
-    // printf("window_length_samples: %ld\n", window_length_samples);
     printf("Starting audio stream on device %d\n", device_id);
     auto stop_audio_stream = start_audio_stream(ringBuffer, spec, device_id);
 
-
     printf("Instantiating visualizations\n");
-
     BandpassStandingWave bpsw {spec, params};
+    BandpassStandingWave bpsw_i {spec, params_i};
     BandpassStandingWave bpsw2 {spec, params2};
-    constexpr size_t num_handlers = 2;
-    VisualizationHandler* handlers[num_handlers] = {&bpsw, &bpsw2};
+    constexpr size_t num_handlers = 3;
+    VisualizationHandler* handlers[num_handlers] = {&bpsw, &bpsw2, &bpsw_i};
 
     printf("Starting UI\n");
     ui_init();
@@ -210,15 +207,16 @@ int main (int argc, char** argv) {
     double frame_us_nominal = (update_fragment_samples / (double) spec.freq) * 1000000;
     size_t frame_counter = 0;
 
-    UDPSocket sock(21324, "192.168.0.53");
+    // UDPSocket sock(21324, "192.168.0.53");
+    // uint8_t* led_data = new uint8_t()
 
     while (ui_should_quit() == false) {
 
         // SDL_ResizeEvent event = event;
         // double const resize_to[2] = event.type == SDL_VIDEORESIZE ? {event.w, event.h}
-        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 100);
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
         SDL_RenderClear(renderer);
-        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 220);
+        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 225);
 
         if (frame_counter++ % 60 == 0) {
             auto now = clk::now();
@@ -234,12 +232,12 @@ int main (int argc, char** argv) {
         }
 
         SDL_RenderPresent(renderer);
+        // sock.send
     }
 
     printf("Stopping audio stream and deconstructing.\n");
 
     ui_shutdown();
     stop_audio_stream();
-
     delete ringBuffer;
 }
