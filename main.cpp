@@ -210,9 +210,6 @@ int main (int argc, char** argv) {
     double frame_us_acc = 0;
     size_t frame_counter = 0;
 
-    // UDPSocket sock(21324, "192.168.0.53");
-    // uint8_t* led_data = new uint8_t()
-
     while (ui_should_quit() == false) {
 
         // SDL_ResizeEvent event = event;
@@ -240,7 +237,6 @@ int main (int argc, char** argv) {
         }
 
         SDL_RenderPresent(renderer);
-        // sock.send
     }
 
     printf("\n\nStopping audio stream and deconstructing.\n");
