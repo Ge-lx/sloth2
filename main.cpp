@@ -83,15 +83,14 @@ int main (int argc, char** argv) {
     using namespace audio;
     sdl_init();
 
-    uint16_t device_id = 3;
+    uint16_t device_id = 0;
+    auto device_names = get_audio_device_names();
     if (argc > 1) {
 	   device_id = atoi(argv[1]);
     } else {
         std::cout << "\nNo audio device specified. Please choose one!" << std::endl;
         std::cout << "Usage: \"./sloth2 <device_id>\"\n" << std::endl;
-
         std::cout << "Available devices:" << std::endl;
-        auto device_names = get_audio_device_names();
         for (size_t i = 0; i < device_names.size(); i++) {
             std::cout << "\t" << i << ": " << device_names[i] << std::endl;
         }
@@ -113,13 +112,14 @@ int main (int argc, char** argv) {
 
     const static double update_interval_ms = 1000 / 59;
     const static double window_length_ms = 80;
-    const static int num_ring_buffers = 2;
+    const static int num_buffers_delay = 1;
 
     size_t window_length_samples = ((double) window_length_ms) / 1000 * spec.freq;
     size_t update_fragment_samples = update_interval_ms / 1000.0 * spec.freq;
     spec.samples = (size_t) update_fragment_samples;
-    printf("Allocating ring buffer of %f kB\n", 2 * update_fragment_samples * spec.channels * num_ring_buffers / 1000.0);
-    RingBuffer<SampleT>* ringBuffer = new RingBuffer<SampleT>(spec.channels * spec.samples, num_ring_buffers);
+    printf("Allocating ring buffer of %.3f kB\n", 2 * update_fragment_samples * spec.channels * num_buffers_delay / 1000.0);
+    printf("Audio input delay of %.1f ms\n", num_buffers_delay * update_interval_ms);
+    RingBuffer<SampleT>* ringBuffer = new RingBuffer<SampleT>(spec.channels * spec.samples, num_buffers_delay);
 
 
     BPSW_Spec params {
@@ -190,7 +190,7 @@ int main (int argc, char** argv) {
 
     /* -------------------- CONFIGURATION END ----------------------------- */
 
-    printf("Starting audio stream on device %d\n", device_id);
+    std::cout << "Starting audio stream on \"" << device_names[device_id] << "\"" << std::endl;
     auto stop_audio_stream = start_audio_stream(ringBuffer, spec, device_id);
 
     printf("Instantiating visualizations\n");
@@ -200,11 +200,14 @@ int main (int argc, char** argv) {
     constexpr size_t num_handlers = 3;
     VisualizationHandler* handlers[num_handlers] = {&bpsw, &bpsw2, &bpsw_i};
 
-    printf("Starting UI\n");
+    printf("Starting UI\n\n");
     ui_init();
 
     auto last_frame = clk::now();
+    auto last_print = clk::now();
+    double print_interval_ms = 2 * 1000;
     double frame_us_nominal = (update_fragment_samples / (double) spec.freq) * 1000000;
+    double frame_us_acc = 0;
     size_t frame_counter = 0;
 
     // UDPSocket sock(21324, "192.168.0.53");
@@ -218,11 +221,16 @@ int main (int argc, char** argv) {
         SDL_RenderClear(renderer);
         SDL_SetRenderDrawColor(renderer, 255, 255, 255, 225);
 
-        if (frame_counter++ % 60 == 0) {
-            auto now = clk::now();
-            double diff = time_diff_us(last_frame, now);
-            std::cout << "Frame after " << std::setw(10) << diff << " us | "
-                << std::setw(10) << diff / frame_us_nominal << " utilization\n";
+        auto now = clk::now();
+        frame_counter++;
+        frame_us_acc += time_diff_us(last_frame, now);
+        if (time_diff_us(last_print, now) / 1000 >= print_interval_ms) {
+            double frame_avg_us = frame_us_acc / frame_counter;
+            frame_counter = 0;
+            frame_us_acc = 0;
+            last_print = now;
+            std::cout << "Frame after " << std::setw(10) << frame_avg_us << " us | "
+                << std::setw(8) << std::fixed << std::setprecision(2) << frame_avg_us / frame_us_nominal * 100 << "% utilization\n";
         }
 
         last_frame = process_ring_buffer(ringBuffer, handlers, num_handlers, spec);
@@ -235,7 +243,7 @@ int main (int argc, char** argv) {
         // sock.send
     }
 
-    printf("Stopping audio stream and deconstructing.\n");
+    printf("\n\nStopping audio stream and deconstructing.\n");
 
     ui_shutdown();
     stop_audio_stream();

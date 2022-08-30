@@ -15,9 +15,10 @@ private:
     std::queue<T> q;
     SDL_mutex* rb_mutex;
     SDL_cond* rb_cond;
+    size_t min_fill_len;
 
 public:
-    ThreadSafeQueue () : q() {
+    ThreadSafeQueue (size_t min_fill_len) : q(), min_fill_len(min_fill_len) {
         rb_mutex = SDL_CreateMutex();
         rb_cond = SDL_CreateCond();
     }
@@ -39,7 +40,7 @@ public:
     // If the queue is empty, wait till a element is avaiable.
     T dequeue (Uint32 timeout_ms = SDL_MUTEX_MAXWAIT) {
         SDL_LockMutex(rb_mutex);
-        while (q.empty()) {
+        while (q.size() < min_fill_len) {
             // release lock as long as the wait and reaquire it afterwards.
             int res = SDL_CondWaitTimeout(rb_cond, rb_mutex, timeout_ms);
             if (res == SDL_MUTEX_TIMEDOUT) {
@@ -62,8 +63,8 @@ private:
 public:
     size_t buffer_len, num_buffers;
 
-    RingBuffer (size_t buffer_len, size_t num_buffers) :
-        buffer_len(buffer_len), num_buffers(num_buffers)
+    RingBuffer (size_t buffer_len, size_t min_fill_len) :
+        clean(1), dirty(min_fill_len), buffer_len(buffer_len), num_buffers(min_fill_len + 1)
     {
         for (size_t i = 0; i < num_buffers; i++) {
             clean.enqueue(new T[buffer_len]);

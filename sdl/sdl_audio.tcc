@@ -43,15 +43,16 @@ namespace audio {
 
         if (spec_avail.samples != spec.samples) {
             // spec.samples = spec_avail.samples;
-            printf("Avail samples: %d\n", spec_avail.samples);
+            printf("Audio device reported different fragment length of %d samples.\n", spec_avail.samples);
             // throw std::runtime_error("We didn't get the wanted samples.");
         }
 
-        double len_s = ((double) spec_avail.samples) / spec_avail.freq;
-        printf("Fragment length: %f ms\n", len_s * 1000);
-        printf("\n");
 
         SDL_PauseAudioDevice(dev, 0);
+
+        double len_s = ((double) spec_avail.samples) / spec_avail.freq;
+        printf("Audio streaming with fragment length of %.1f ms\n", len_s * 1000);
+        printf("\n");
 
         if (dev == 0) {
             std::stringstream ss;
