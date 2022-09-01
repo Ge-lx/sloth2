@@ -74,11 +74,10 @@ public:
 			SDL_CondWait(vh_cond, vh_mutex);
 		}
 		SDL_UnlockMutex(vh_mutex);
-
-		return;
 	}
 
 	void await_and_render (SDL_Renderer* renderer) {
+		await_buffer_processed();
 		SDL_LockMutex(vh_mutex);
 		render(renderer);
 		SDL_UnlockMutex(vh_mutex);

@@ -27,30 +27,6 @@ double time_diff_us (std::chrono::time_point<clk> const& a, std::chrono::time_po
     return diff.count();
 }
 
-template <typename SampleT>
-std::chrono::time_point<clk> process_ring_buffer (RingBuffer<SampleT>* ringBuffer, VisualizationHandler** handlers, size_t num_handlers, SDL_AudioSpec& spec) {
-    SampleT* const buf = ringBuffer->dequeue_dirty();
-    auto received = clk::now();
-
-    double* mono = new double[spec.samples];
-    for (size_t i = 0; i < spec.samples; i++) {
-        mono[i] = (buf[2*i] + buf[2*i + 1]) / ((double) std::pow(2, 17));
-    }
-    memset(buf, spec.silence, spec.channels * sizeof(SampleT) * spec.samples);
-    ringBuffer->enqueue_clean(buf);
-
-    for (size_t i = 0; i < num_handlers; i++) {
-        handlers[i]->process_ring_buffer(mono);
-    }
-
-    for (size_t i = 0; i < num_handlers; i++) {
-        handlers[i]->await_buffer_processed();
-    }
-
-    delete[] mono;
-    return received;
-}
-
 int ui_init () {
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Couldn't initialize SDL: %s", SDL_GetError());
@@ -77,6 +53,81 @@ void ui_shutdown () {
     SDL_Quit();
 }
 
+template <typename SampleT>
+void sloth_mainloop (uint16_t device_id, SDL_AudioSpec& spec, size_t num_buffers_delay,
+    VisualizationHandler** handlers, size_t num_handlers, double print_interval_ms) {
+
+    using namespace audio;
+
+    printf("Allocating ring buffer of %.3f kB\n", 2 * spec.samples * spec.channels * num_buffers_delay / 1000.0);
+    printf("Audio input delay of %.1f ms\n", num_buffers_delay * spec.samples / (double) spec.freq * 1000.0);
+    RingBuffer<SampleT>* ringBuffer = new RingBuffer<SampleT>(spec.channels * spec.samples, num_buffers_delay);
+    double* mono = new double[spec.samples];
+
+    auto device_names = get_audio_device_names();
+    std::cout << "Starting audio stream on \"" << device_names[device_id] << "\"" << std::endl;
+    auto stop_audio_stream = start_audio_stream(ringBuffer, spec, device_id);
+
+    printf("Starting UI\n\n");
+    ui_init();
+
+    auto last_frame = clk::now();
+    auto last_print = clk::now();
+    double frame_us_nominal = (spec.samples / (double) spec.freq) * 1000000;
+    double frame_us_acc = 0;
+    size_t frame_counter = 0;
+
+    while (ui_should_quit() == false) {
+
+        // SDL_ResizeEvent event = event;
+        // double const resize_to[2] = event.type == SDL_VIDEORESIZE ? {event.w, event.h}
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
+        SDL_RenderClear(renderer);
+        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 225);
+
+        auto now = clk::now();
+        frame_counter++;
+        frame_us_acc += time_diff_us(last_frame, now);
+        if (time_diff_us(last_print, now) / 1000 >= print_interval_ms) {
+            double frame_avg_us = frame_us_acc / frame_counter;
+            frame_counter = 0;
+            frame_us_acc = 0;
+            last_print = now;
+            std::cout << "Frame after " << std::setw(10) << frame_avg_us << " us | "
+                << std::setw(8) << std::fixed << std::setprecision(2)
+                << frame_avg_us / frame_us_nominal * 100 << "% utilization\n";
+        }
+
+        SampleT* const buf = ringBuffer->dequeue_dirty();
+        last_frame = clk::now();
+
+        for (size_t i = 0; i < spec.samples; i++) {
+            mono[i] = (buf[2*i] + buf[2*i + 1]) / ((double) std::pow(2, 17));
+        }
+
+        memset(buf, spec.silence, spec.channels * sizeof(SampleT) * spec.samples);
+        ringBuffer->enqueue_clean(buf);
+
+        for (size_t i = 0; i < num_handlers; i++) {
+            handlers[i]->process_ring_buffer(mono);
+        }
+
+        for (size_t i = 0; i < num_handlers; i++) {
+            handlers[i]->await_and_render(renderer);
+        }
+
+        SDL_RenderPresent(renderer);
+    }
+
+    printf("\n\nStopping audio stream and deconstructing.\n");
+
+    ui_shutdown();
+    stop_audio_stream();
+
+    delete ringBuffer;
+    delete[] mono;
+}
+
 int main (int argc, char** argv) {
     std::cout << "Starting sloth2 realtime audio visualizer..." << std::endl;
 
@@ -84,10 +135,10 @@ int main (int argc, char** argv) {
     sdl_init();
 
     uint16_t device_id = 0;
-    auto device_names = get_audio_device_names();
     if (argc > 1) {
 	   device_id = atoi(argv[1]);
     } else {
+        auto device_names = get_audio_device_names();
         std::cout << "\nNo audio device specified. Please choose one!" << std::endl;
         std::cout << "Usage: \"./sloth2 <device_id>\"\n" << std::endl;
         std::cout << "Available devices:" << std::endl;
@@ -112,15 +163,11 @@ int main (int argc, char** argv) {
 
     const static double update_interval_ms = 1000 / 59;
     const static double window_length_ms = 80;
-    const static int num_buffers_delay = 1;
+    const static double print_interval_ms = 2000;
+    const static int num_buffers_delay = 5;
 
-    size_t window_length_samples = ((double) window_length_ms) / 1000 * spec.freq;
-    size_t update_fragment_samples = update_interval_ms / 1000.0 * spec.freq;
-    spec.samples = (size_t) update_fragment_samples;
-    printf("Allocating ring buffer of %.3f kB\n", 2 * update_fragment_samples * spec.channels * num_buffers_delay / 1000.0);
-    printf("Audio input delay of %.1f ms\n", num_buffers_delay * update_interval_ms);
-    RingBuffer<SampleT>* ringBuffer = new RingBuffer<SampleT>(spec.channels * spec.samples, num_buffers_delay);
-
+    size_t window_length_samples = window_length_ms / 1000 * spec.freq;
+    spec.samples = (size_t) update_interval_ms / 1000.0 * spec.freq;
 
     BPSW_Spec params {
         .win_length_samples = window_length_samples / 2,
@@ -143,6 +190,7 @@ int main (int argc, char** argv) {
                            // i < 80 ? 0.2 : 0;
     }
     params.fft_freq_weighing = freq_weighing;
+
 
     BPSW_Spec params_i {
         .win_length_samples = window_length_samples / 2,
@@ -190,58 +238,13 @@ int main (int argc, char** argv) {
 
     /* -------------------- CONFIGURATION END ----------------------------- */
 
-    std::cout << "Starting audio stream on \"" << device_names[device_id] << "\"" << std::endl;
-    auto stop_audio_stream = start_audio_stream(ringBuffer, spec, device_id);
-
     printf("Instantiating visualizations\n");
     BandpassStandingWave bpsw {spec, params};
     BandpassStandingWave bpsw_i {spec, params_i};
     BandpassStandingWave bpsw2 {spec, params2};
+
     constexpr size_t num_handlers = 3;
-    VisualizationHandler* handlers[num_handlers] = {&bpsw, &bpsw2, &bpsw_i};
+    VisualizationHandler* handlers[num_handlers] = {&bpsw, &bpsw_i, &bpsw2};
 
-    printf("Starting UI\n\n");
-    ui_init();
-
-    auto last_frame = clk::now();
-    auto last_print = clk::now();
-    double print_interval_ms = 2 * 1000;
-    double frame_us_nominal = (update_fragment_samples / (double) spec.freq) * 1000000;
-    double frame_us_acc = 0;
-    size_t frame_counter = 0;
-
-    while (ui_should_quit() == false) {
-
-        // SDL_ResizeEvent event = event;
-        // double const resize_to[2] = event.type == SDL_VIDEORESIZE ? {event.w, event.h}
-        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
-        SDL_RenderClear(renderer);
-        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 225);
-
-        auto now = clk::now();
-        frame_counter++;
-        frame_us_acc += time_diff_us(last_frame, now);
-        if (time_diff_us(last_print, now) / 1000 >= print_interval_ms) {
-            double frame_avg_us = frame_us_acc / frame_counter;
-            frame_counter = 0;
-            frame_us_acc = 0;
-            last_print = now;
-            std::cout << "Frame after " << std::setw(10) << frame_avg_us << " us | "
-                << std::setw(8) << std::fixed << std::setprecision(2) << frame_avg_us / frame_us_nominal * 100 << "% utilization\n";
-        }
-
-        last_frame = process_ring_buffer(ringBuffer, handlers, num_handlers, spec);
-
-        for (size_t i = 0; i < num_handlers; i++) {
-            handlers[i]->await_and_render(renderer);
-        }
-
-        SDL_RenderPresent(renderer);
-    }
-
-    printf("\n\nStopping audio stream and deconstructing.\n");
-
-    ui_shutdown();
-    stop_audio_stream();
-    delete ringBuffer;
+    sloth_mainloop<SampleT>(device_id, spec, num_buffers_delay, handlers, num_handlers, print_interval_ms);
 }
