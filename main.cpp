@@ -63,6 +63,7 @@ void sloth_mainloop (uint16_t device_id, SDL_AudioSpec& spec, size_t num_buffers
     printf("Audio input delay of %.1f ms\n", num_buffers_delay * spec.samples / (double) spec.freq * 1000.0);
     RingBuffer<SampleT>* ringBuffer = new RingBuffer<SampleT>(spec.channels * spec.samples, num_buffers_delay);
     double* mono = new double[spec.samples];
+    math::ExpFilter<double> max_filter(1, 0.90, 0.04, 1);
 
     auto device_names = get_audio_device_names();
     std::cout << "Starting audio stream on \"" << device_names[device_id] << "\"" << std::endl;
@@ -107,6 +108,13 @@ void sloth_mainloop (uint16_t device_id, SDL_AudioSpec& spec, size_t num_buffers
 
         memset(buf, spec.silence, spec.channels * sizeof(SampleT) * spec.samples);
         ringBuffer->enqueue_clean(buf);
+
+        double maxval = math::max_value(mono, spec.samples);
+        maxval = *max_filter.update(&maxval);
+        maxval = maxval > 2 ? 2 : (maxval < 0.01 ? 0.02 : maxval);
+        for (size_t i = 0; i < spec.samples; i++) {
+            mono[i] /= 2.5 * maxval;
+        }
 
         for (size_t i = 0; i < num_handlers; i++) {
             handlers[i]->process_ring_buffer(mono);
@@ -164,7 +172,7 @@ int main (int argc, char** argv) {
     const static double update_interval_ms = 1000 / 59;
     const static double window_length_ms = 80;
     const static double print_interval_ms = 2000;
-    const static int num_buffers_delay = 5;
+    const static int num_buffers_delay = 3;
 
     size_t window_length_samples = window_length_ms / 1000 * spec.freq;
     spec.samples = (size_t) update_interval_ms / 1000.0 * spec.freq;
@@ -231,8 +239,8 @@ int main (int argc, char** argv) {
     size_t c_length_2 = params2.win_length_samples / 2 + 1;
     double* freq_weighing_2 = new double[c_length_2];
     for (size_t i = 0; i < c_length_2; i++) {
-        freq_weighing_2[i] = i > 180 ? 3 :
-                             i > 80 ? 1.5 : 0;
+        freq_weighing_2[i] = i > 110 ? 3 :
+                             i > 50 ? 1.5 : 0;
     }
     params2.fft_freq_weighing = freq_weighing_2;
 
