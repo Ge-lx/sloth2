@@ -11,6 +11,7 @@
 #include "util/rolling_window.tcc"
 
 #include "visualization/bandpass_standing_wave.tcc"
+#include "visualization/bpsw_interpolated.tcc"
 
 #include <SDL2/SDL.h>
 #include "sdl/sdl_audio.tcc"
@@ -200,11 +201,12 @@ int main (int argc, char** argv) {
     params.fft_freq_weighing = freq_weighing;
 
 
-    BPSW_Spec params_i {
+    BPSWI_Spec params_i {
         .win_length_samples = window_length_samples / 2,
         .win_window_fn = true,
+        .interpolation_mult = 8,
         .fft_dispersion = 0,//2 * 1.41421356237,
-        .fft_phase = BPSW_Phase::Standing,
+        .fft_phase = BPSW_Phase::Constant,
         .fft_phase_const = 0,
         .crop_length_samples = window_length_samples / 2,
         .crop_offset = 0,
@@ -213,11 +215,11 @@ int main (int argc, char** argv) {
         .c_rad_base = WINDOW_HEIGHT / 2 - 400,
         .c_rad_extr = 100,
     };
-    size_t c_length_i = params_i.win_length_samples / 2 + 1;
+    size_t c_length_i = (params_i.interpolation_mult * params_i.win_length_samples) / 2 + 1;
     double* freq_weighing_i = new double[c_length_i];
     for (size_t i = 0; i < c_length_i; i++) {
-        freq_weighing_i[i] = i < 10 ? 1.5 :
-                           i < 20 ? 1 : 0.2;
+        freq_weighing_i[i] = i < 40 ? 1.5 :
+                           i < 80 ? 1 : 0.2;
                            // i < 80 ? 0.2 : 0;
     }
     params_i.fft_freq_weighing = freq_weighing_i;
@@ -248,7 +250,7 @@ int main (int argc, char** argv) {
 
     printf("Instantiating visualizations\n");
     BandpassStandingWave bpsw {spec, params};
-    BandpassStandingWave bpsw_i {spec, params_i};
+    BPSWInterpolated bpsw_i {spec, params_i};
     BandpassStandingWave bpsw2 {spec, params2};
 
     constexpr size_t num_handlers = 3;
