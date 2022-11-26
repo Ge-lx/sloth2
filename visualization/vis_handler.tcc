@@ -84,9 +84,9 @@ public:
 	}
 
 	VisualizationHandler (SDL_AudioSpec const& spec) : spec(spec) {
-		vh_thread = SDL_CreateThread(&VisualizationHandler::worker_thread, "visualization worker", (void *) this);
 		vh_mutex = SDL_CreateMutex();
         vh_cond = SDL_CreateCond();
+		vh_thread = SDL_CreateThread(&VisualizationHandler::worker_thread, "visualization worker", (void *) this);
 	}
 
     ~VisualizationHandler () {

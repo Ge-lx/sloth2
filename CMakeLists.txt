@@ -14,9 +14,14 @@ add_subdirectory(third_party/SDL)
 set(SDL_INCLUDE_DIR ${CMAKE_CURRENT_LIST_DIR}/third_party/SDL/include)
 set(SDL_TEST OFF)
 
-add_library(fft util/fft_handler.cpp)
+add_library(wavelet2d ${CMAKE_CURRENT_LIST_DIR}/third_party/wavelet2d/wavelet2d.cpp)
+target_include_directories(wavelet2d PUBLIC ${CMAKE_CURRENT_LIST_DIR}/third_party/fftw-3.3.10/api)
+target_link_libraries(wavelet2d PUBLIC fftw3)
+
+add_library(fft util/fft_handler.cpp util/dwt_handler.cpp)
 target_include_directories(fft PUBLIC ${CMAKE_CURRENT_LIST_DIR}/third_party/fftw-3.3.10/api)
-target_link_libraries(fft PUBLIC fftw3)
+target_include_directories(fft PUBLIC ${CMAKE_CURRENT_LIST_DIR}/third_party/wavelet2d)
+target_link_libraries(fft PUBLIC wavelet2d)
 
 add_library(util util/ring_buffer.tcc util/math.tcc util/rolling_window.tcc)
 add_library(sdl sdl/sdl_audio.tcc)

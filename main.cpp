@@ -12,6 +12,7 @@
 
 #include "visualization/bandpass_standing_wave.tcc"
 #include "visualization/bpsw_interpolated.tcc"
+#include "visualization/wavelet.tcc"
 
 #include <SDL2/SDL.h>
 #include "sdl/sdl_audio.tcc"
@@ -171,90 +172,88 @@ int main (int argc, char** argv) {
     spec.channels = 2;
 
     const static double update_interval_ms = 1000 / 59;
-    const static double window_length_ms = 80;
+    const static double window_length_ms = 20;
     const static double print_interval_ms = 2000;
-    const static int num_buffers_delay = 3;
+    const static int num_buffers_delay = 1;
 
     size_t window_length_samples = window_length_ms / 1000 * spec.freq;
     spec.samples = (size_t) update_interval_ms / 1000.0 * spec.freq;
 
-    BPSW_Spec params {
-        .win_length_samples = window_length_samples / 2,
-        .win_window_fn = true,
-        .fft_dispersion = 2 * 1.41421356237,
-        .fft_phase = BPSW_Phase::Constant,
-        .fft_phase_const = 1.22222,
-        .crop_length_samples = window_length_samples / 2,
-        .crop_offset = 0,
-        .c_center_x = WINDOW_WIDTH / 2,
-        .c_center_y = WINDOW_HEIGHT / 2,
-        .c_rad_base = WINDOW_HEIGHT / 2 - 220,
-        .c_rad_extr = 400,
-    };
-    size_t c_length = params.win_length_samples / 2 + 1;
-    double* freq_weighing = new double[c_length];
-    for (size_t i = 0; i < c_length; i++) {
-        freq_weighing[i] = i < 10 ? 1.5 :
-                           i < 20 ? 1 : 0.2;
-                           // i < 80 ? 0.2 : 0;
-    }
-    params.fft_freq_weighing = freq_weighing;
+    // BPSW_Spec params {
+    //     .win_length_samples = window_length_samples / 2,
+    //     .win_window_fn = true,
+    //     .fft_dispersion = 2 * 1.41421356237,
+    //     .fft_phase = BPSW_Phase::Constant,
+    //     .fft_phase_const = 1.22222,
+    //     .crop_length_samples = window_length_samples / 2,
+    //     .crop_offset = 0,
+    //     .c_center_x = WINDOW_WIDTH / 2,
+    //     .c_center_y = WINDOW_HEIGHT / 2,
+    //     .c_rad_base = WINDOW_HEIGHT / 2 - 220,
+    //     .c_rad_extr = 400,
+    // };
+    // size_t c_length = params.win_length_samples / 2 + 1;
+    // double* freq_weighing = new double[c_length];
+    // for (size_t i = 0; i < c_length; i++) {
+    //     freq_weighing[i] = i < 10 ? 1.5 :
+    //                        i < 20 ? 1 : 0.2;
+    //                        // i < 80 ? 0.2 : 0;
+    // }
+    // params.fft_freq_weighing = freq_weighing;
 
 
-    BPSWI_Spec params_i {
-        .win_length_samples = window_length_samples / 2,
-        .win_window_fn = true,
-        .interpolation_mult = 8,
-        .fft_dispersion = 0,//2 * 1.41421356237,
-        .fft_phase = BPSW_Phase::Constant,
-        .fft_phase_const = 0,
-        .crop_length_samples = window_length_samples / 2,
-        .crop_offset = 0,
-        .c_center_x = WINDOW_WIDTH / 2,
-        .c_center_y = WINDOW_HEIGHT / 2,
-        .c_rad_base = WINDOW_HEIGHT / 2 - 400,
-        .c_rad_extr = 100,
-    };
-    size_t c_length_i = (params_i.interpolation_mult * params_i.win_length_samples) / 2 + 1;
-    double* freq_weighing_i = new double[c_length_i];
-    for (size_t i = 0; i < c_length_i; i++) {
-        freq_weighing_i[i] = i < 40 ? 1.5 :
-                           i < 80 ? 1 : 0.2;
-                           // i < 80 ? 0.2 : 0;
-    }
-    params_i.fft_freq_weighing = freq_weighing_i;
+    // BPSWI_Spec params_i {
+    //     .win_length_samples = window_length_samples / 2,
+    //     .win_window_fn = true,
+    //     .interpolation_mult = 8,
+    //     .fft_dispersion = 0,//2 * 1.41421356237,
+    //     .fft_phase = BPSW_Phase::Constant,
+    //     .fft_phase_const = 0,
+    //     .crop_length_samples = window_length_samples / 2,
+    //     .crop_offset = 0,
+    //     .c_center_x = WINDOW_WIDTH / 2,
+    //     .c_center_y = WINDOW_HEIGHT / 2,
+    //     .c_rad_base = WINDOW_HEIGHT / 2 - 400,
+    //     .c_rad_extr = 100,
+    // };
+    // size_t c_length_i = (params_i.interpolation_mult * params_i.win_length_samples) / 2 + 1;
+    // double* freq_weighing_i = new double[c_length_i];
+    // for (size_t i = 0; i < c_length_i; i++) {
+    //     freq_weighing_i[i] = i < 40 ? 1.5 :
+    //                        i < 80 ? 1 : 0.2;
+    //                        // i < 80 ? 0.2 : 0;
+    // }
+    // params_i.fft_freq_weighing = freq_weighing_i;
 
-
-    BPSW_Spec params2 {
-        .win_length_samples = window_length_samples / 2,
+    Wavelet_Spec wavelet_spec {
+        .win_length_samples = window_length_samples,
         .win_window_fn = true,
         .fft_dispersion = 0,
         .fft_phase = BPSW_Phase::Standing,
         .fft_phase_const = 0,
-        .crop_length_samples = window_length_samples / 2,
+        .crop_length_samples = window_length_samples,
         .crop_offset = 0,
         .c_center_x = WINDOW_WIDTH / 2,
         .c_center_y = WINDOW_HEIGHT / 2,
         .c_rad_base = WINDOW_HEIGHT / 2 - 50,
         .c_rad_extr = 300,
     };
-    size_t c_length_2 = params2.win_length_samples / 2 + 1;
+    size_t c_length_2 = wavelet_spec.win_length_samples / 2 + 1;
     double* freq_weighing_2 = new double[c_length_2];
     for (size_t i = 0; i < c_length_2; i++) {
-        freq_weighing_2[i] = i > 110 ? 3 :
-                             i > 50 ? 1.5 : 0;
+        freq_weighing_2[i] = 1;//> 110 ? 3 :
+                             //i > 50 ? 1.5 : 0;
     }
-    params2.fft_freq_weighing = freq_weighing_2;
-
+    wavelet_spec.fft_freq_weighing = freq_weighing_2;
     /* -------------------- CONFIGURATION END ----------------------------- */
 
     printf("Instantiating visualizations\n");
-    BandpassStandingWave bpsw {spec, params};
-    BPSWInterpolated bpsw_i {spec, params_i};
-    BandpassStandingWave bpsw2 {spec, params2};
+    // BandpassStandingWave bpsw {spec, params};
+    // BPSWInterpolated bpsw_i {spec, params_i};
+    Wavelet wavelet {spec, wavelet_spec};
 
-    constexpr size_t num_handlers = 3;
-    VisualizationHandler* handlers[num_handlers] = {&bpsw, &bpsw_i, &bpsw2};
+    constexpr size_t num_handlers = 1;
+    VisualizationHandler* handlers[num_handlers] = {/*&bpsw, &bpsw_i, &bpsw2, */&wavelet};
 
     sloth_mainloop<SampleT>(device_id, spec, num_buffers_delay, handlers, num_handlers, print_interval_ms);
 }
